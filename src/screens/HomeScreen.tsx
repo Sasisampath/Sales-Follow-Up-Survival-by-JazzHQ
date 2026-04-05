@@ -98,7 +98,6 @@ function Screen(props) {
           }).start();
         }}
       >
-        <Text style={styles.coins}>{props.coins}</Text>
         <Animated.Image
           source={require("../../assets/images/title.png")}
           style={[styles.title, animatedTitleStyle]}
@@ -149,20 +148,6 @@ const styles = StyleSheet.create({
     maxWidth: 600,
     width: "80%",
     height: 300,
-  },
-  coins: {
-    fontFamily: "retro",
-    position: "absolute",
-    right: 8,
-    color: "#f8e84d",
-    fontSize: 36,
-    letterSpacing: 0.9,
-    backgroundColor: "transparent",
-    textAlign: "right",
-    shadowColor: "black",
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
   },
   paragraph: {
     margin: 24,

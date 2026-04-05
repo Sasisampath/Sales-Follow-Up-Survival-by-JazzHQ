@@ -180,7 +180,7 @@ export class GameMap {
     const targetZ = `${position.z | 0}`;
     if (targetZ in this.floorMap) {
       const { type, entity } = this.floorMap[targetZ];
-      if (type === "grass") {
+      if (type === "grass" || type === "decision") {
         const key = `${position.x | 0}`;
         if (key in entity.obstacleMap) {
           return true;
@@ -204,10 +204,11 @@ export class CrossyGameMap extends GameMap {
   railRoads = new EntityContainer();
   rowCount = 0;
 
-  constructor({ heroWidth, onCollide, scene }) {
+  constructor({ heroWidth, onCollide, scene, missionEngine }) {
     super();
 
     this.heroWidth = heroWidth;
+    this.missionEngine = missionEngine;
 
     // Assign mesh to corresponding array
     // and add mesh to scene
@@ -269,7 +270,15 @@ export class CrossyGameMap extends GameMap {
 
     const ROW_TYPES = ["grass", "roadtype", "water"];
     if (rowKind == null) {
-      rowKind = ROW_TYPES[Math.floor(Math.random() * ROW_TYPES.length)];
+      if (
+        this.rowCount > 12 &&
+        this.missionEngine &&
+        Math.random() < 0.28
+      ) {
+        rowKind = "decision";
+      } else {
+        rowKind = ROW_TYPES[Math.floor(Math.random() * ROW_TYPES.length)];
+      }
     }
 
     // Get the previous row info for coordination
@@ -325,7 +334,10 @@ export class CrossyGameMap extends GameMap {
 
         // If previous row is grass, get clear positions so lily pads are accessible
         let clearPositions: number[] = [];
-        if (previousRow && previousRow.type === "grass") {
+        if (
+          previousRow &&
+          (previousRow.type === "grass" || previousRow.type === "decision")
+        ) {
           clearPositions = this.getClearPositionsFromGrass(previousRow.entity);
         }
 
@@ -336,6 +348,49 @@ export class CrossyGameMap extends GameMap {
         });
         this.water.count++;
         break;
+      case "decision": {
+        const mission = this.missionEngine
+          ? this.missionEngine.nextDecisionRow()
+          : null;
+        if (!mission) {
+          this.grasses.items[this.grasses.count].position.z = this.rowCount;
+          let requiredClearPositions: number[] = [];
+          if (previousRow && previousRow.type === "water") {
+            requiredClearPositions = previousRow.entity.getLilyPadPositions();
+          }
+          this.grasses.items[this.grasses.count].generate(
+            this.mapRowToObstacle(this.rowCount),
+            requiredClearPositions
+          );
+          this.setRow(this.rowCount, {
+            type: "grass",
+            entity: this.grasses.items[this.grasses.count],
+          });
+          this.grasses.count++;
+          break;
+        }
+        this.grasses.items[this.grasses.count].position.z = this.rowCount;
+        let decisionClear: number[] = [];
+        if (previousRow && previousRow.type === "water") {
+          decisionClear = previousRow.entity.getLilyPadPositions();
+        }
+        const threeLanes = [-1, 0, 1];
+        const required = [
+          ...new Set([...decisionClear, ...threeLanes]),
+        ];
+        this.grasses.items[this.grasses.count].generate(
+          Fill.empty,
+          required
+        );
+        this.setRow(this.rowCount, {
+          type: "decision",
+          entity: this.grasses.items[this.grasses.count],
+          mission,
+          decisionResolved: false,
+        });
+        this.grasses.count++;
+        break;
+      }
     }
 
     this.rowCount++;

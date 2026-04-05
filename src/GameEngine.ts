@@ -18,12 +18,31 @@ import {
   sceneColor,
   startingRow,
 } from "./GameSettings";
+import MissionEngine, { DECISION_LANE_X } from "./game/MissionEngine";
+import type { SalesMission } from "./data/DecisionDataset";
 
 const normalizeAngle = (angle) => {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
 };
 
+const BOSS_POWER_THRESHOLD = 20;
+
 export default class Engine {
+  missionEngine!: MissionEngine;
+  powerScore = 0;
+  _bossTriggered = false;
+  _pendingDecisionFromUp = false;
+  _lastUiMission: SalesMission | null | undefined = undefined;
+
+  onPowerChange?: (power: number) => void;
+  onDecisionMission?: (mission: SalesMission | null) => void;
+  onBossEncounter?: () => void;
+  /** Fires after a decision row resolves (move completed). */
+  onDecisionOutcome?: (correct: boolean) => void;
+
+  /** Power granted for a correct decision lane (fixed training reward). */
+  static DECISION_CORRECT_POWER = 5;
+
   updateScale = () => {
     const { width, height, scale } = Dimensions.get("window");
     if (this.camera) {
@@ -47,10 +66,13 @@ export default class Engine {
 
     this.updateScale();
 
+    this.missionEngine = new MissionEngine();
+
     this.gameMap = new CrossyGameMap({
       heroWidth: 0.7,
       scene: this.scene,
       onCollide: this.onCollide,
+      missionEngine: this.missionEngine,
     });
 
     this.camCount = 0;
@@ -79,6 +101,8 @@ export default class Engine {
     } else if (collision === "train") {
       await AudioManager.playAsync(AudioManager.sounds.train.die[`0`]);
       AudioManager.playDeathSound();
+    } else if (collision === "decision") {
+      AudioManager.playDeathSound();
     }
     this.scene.useParticle(this._hero, type, obstacle.speed);
     this.scene.rumble();
@@ -97,6 +121,12 @@ export default class Engine {
     this.camCount = 0;
 
     this.gameMap.reset();
+    this.missionEngine.reset();
+    this.powerScore = 0;
+    this._bossTriggered = false;
+    this._pendingDecisionFromUp = false;
+    this._lastUiMission = undefined;
+    this.onPowerChange?.(this.powerScore);
 
     this._hero.idle();
     this.gameMap.init();
@@ -143,6 +173,40 @@ export default class Engine {
       this.checkIfUserHasFallenOutOfFrame();
     }
     this.forwardScene();
+    this.syncDecisionMissionUI();
+  };
+
+  syncDecisionMissionUI = () => {
+    if (!this.gameMap || !this._hero) {
+      return;
+    }
+    const z = Math.round(this._hero.position.z);
+    const ahead = this.gameMap.getRow(z + 1);
+    const cur = this.gameMap.getRow(z);
+    let mission: SalesMission | null = null;
+    if (ahead?.type === "decision" && ahead.mission) {
+      mission = ahead.mission;
+    } else if (cur?.type === "decision" && cur.mission) {
+      mission = cur.mission;
+    }
+    if (mission !== this._lastUiMission) {
+      this._lastUiMission = mission ?? null;
+      this.onDecisionMission?.(mission);
+    }
+  };
+
+  addPower = (amount: number) => {
+    const prev = this.powerScore;
+    this.powerScore += amount;
+    this.onPowerChange?.(this.powerScore);
+    if (
+      !this._bossTriggered &&
+      prev < BOSS_POWER_THRESHOLD &&
+      this.powerScore >= BOSS_POWER_THRESHOLD
+    ) {
+      this._bossTriggered = true;
+      this.onBossEncounter?.();
+    }
   };
 
   checkIfUserHasFallenOutOfFrame = () => {
@@ -183,6 +247,71 @@ export default class Engine {
   updateScore = () => {
     const position = Math.max(Math.floor(this._hero.position.z) - 8, 0);
     this.onUpdateScore(position);
+
+    if (this._pendingDecisionFromUp) {
+      this._pendingDecisionFromUp = false;
+      const z = Math.round(this._hero.position.z);
+      const row = this.gameMap.getRow(z);
+      if (
+        row &&
+        row.type === "decision" &&
+        row.mission &&
+        !row.decisionResolved
+      ) {
+        const result = this.missionEngine.validatePlayerLane(
+          row.mission,
+          this._hero.position.x
+        );
+        row.decisionResolved = true;
+        const missionRef = row.mission;
+        row.mission = null;
+
+        if (result.ok) {
+          this.addPower(Engine.DECISION_CORRECT_POWER);
+          this.onDecisionOutcome?.(true);
+        } else {
+          this.onDecisionOutcome?.(false);
+          setTimeout(() => {
+            if (this._hero.isAlive) {
+              this.onCollide({}, "feathers", "decision");
+            }
+          }, 320);
+        }
+        this.syncDecisionMissionUI();
+      }
+    }
+  };
+
+  /**
+   * Snap to lane x and step onto the decision row ahead (mobile lane buttons).
+   * `laneIndex` 0 = left, 1 = center, 2 = right.
+   */
+  submitDecisionLaneChoice = (laneIndex: 0 | 1 | 2) => {
+    if (this.isGameEnded() || this._hero.moving) {
+      return;
+    }
+    const z = Math.round(this._hero.position.z);
+    const nextRow = this.gameMap.getRow(z + 1) || {};
+    if (
+      nextRow.type !== "decision" ||
+      !nextRow.mission ||
+      nextRow.decisionResolved
+    ) {
+      return;
+    }
+    const laneX = DECISION_LANE_X[laneIndex];
+    this._hero.skipPendingMovement();
+    if (!this._hero.initialPosition) {
+      this._hero.initialPosition = {
+        x: this._hero.position.x,
+        y: this._hero.position.y,
+        z: this._hero.position.z,
+      };
+      this._hero.targetPosition = { ...this._hero.initialPosition };
+    }
+    this._hero.position.x = laneX;
+    this._hero.initialPosition.x = laneX;
+    this.moveWithDirection(swipeDirections.SWIPE_UP);
   };
 
   moveWithDirection = (direction) => {
@@ -248,6 +377,10 @@ export default class Engine {
           if (rowObject.type === "road") {
             AudioManager.playPassiveCarSound();
           }
+
+          const nextRowUp =
+            this.gameMap.getRow(this._hero.initialPosition.z + 1) || {};
+          this._pendingDecisionFromUp = nextRowUp.type === "decision";
 
           let shouldRound = true; // rowObject.type !== 'water';
           velocity = { x: 0, z: 1 };

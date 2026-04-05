@@ -7,6 +7,7 @@ import {
   Platform,
   Vibration,
   View,
+  Text,
   useColorScheme,
 } from "react-native";
 
@@ -16,7 +17,11 @@ import Engine from "@/GameEngine";
 import State from "@/state";
 import CharacterSelectScreen from "@/screens/CharacterSelectScreen";
 import GameOverScreen from "@/screens/GameOverScreen";
-import HomeScreen from "@/screens/HomeScreen";
+import DecisionMissionHud from "@/components/DecisionMissionHud";
+import DecisionOutcomeFlash from "@/components/DecisionOutcomeFlash";
+import TitleScreenOverlay, {
+  type TrainingRole,
+} from "@/screens/TitleScreenOverlay";
 import SettingsScreen from "@/screens/SettingsScreen";
 import GameContext from "@/context/GameContext";
 
@@ -27,10 +32,19 @@ class Game extends Component {
   state = {
     ready: false,
     score: 0,
+    power: 0,
+    decisionMission: null,
+    bossEncounter: false,
     viewKey: 0,
     gameState: State.Game.none,
     showSettings: false,
     showCharacterSelect: false,
+    /** Training role chosen on title screen */
+    selectedRole: "sales" as TrainingRole,
+    /** Gameplay GL scene hidden until user taps START MISSION */
+    missionStarted: false,
+    decisionPressedLane: null,
+    decisionOutcomeFlash: null,
     // gameState: State.Game.gameOver
   };
 
@@ -95,11 +109,8 @@ class Game extends Component {
         this.engine.pause();
         break;
       case none:
-        if (lastState === gameOver) {
-          this.transitionToGamePlayingState();
-        }
+        this.setState({ missionStarted: false });
         this.newScore();
-
         break;
       default:
         break;
@@ -108,6 +119,9 @@ class Game extends Component {
 
   componentWillUnmount() {
     cancelAnimationFrame(this.engine.raf);
+    if (this._decisionLaneHighlightTimer) {
+      clearTimeout(this._decisionLaneHighlightTimer);
+    }
     // Dimensions.removeEventListener("change", this.onScreenResize);
   }
 
@@ -133,7 +147,32 @@ class Game extends Component {
       }
     };
     this.engine.onGameInit = () => {
-      this.setState({ score: 0 });
+      this.setState({
+        score: 0,
+        power: 0,
+        bossEncounter: false,
+        decisionMission: null,
+        decisionPressedLane: null,
+        decisionOutcomeFlash: null,
+      });
+    };
+    this.engine.onPowerChange = (power) => {
+      this.setState({ power });
+    };
+    this.engine.onDecisionMission = (mission) => {
+      this.setState({
+        decisionMission: mission,
+        decisionPressedLane: null,
+        ...(mission ? { decisionOutcomeFlash: null } : {}),
+      });
+    };
+    this.engine.onDecisionOutcome = (correct) => {
+      this.setState({
+        decisionOutcomeFlash: correct ? "correct" : "incorrect",
+      });
+    };
+    this.engine.onBossEncounter = () => {
+      this.setState({ bossEncounter: true });
     };
     this.engine._isGameStateEnded = () => {
       return this.state.gameState !== State.Game.playing;
@@ -155,6 +194,34 @@ class Game extends Component {
   };
 
   onSwipe = (gestureName) => this.engine.moveWithDirection(gestureName);
+
+  showTitleOverlay = () =>
+    this.state.gameState === State.Game.none && !this.state.missionStarted;
+
+  startMission = () => {
+    this.setState({ missionStarted: true }, () => {
+      this.updateWithGameState(State.Game.playing);
+    });
+  };
+
+  handleDecisionOutcomeFlashEnd = () => {
+    this.setState({ decisionOutcomeFlash: null });
+  };
+
+  handleDecisionLanePress = (laneIndex) => {
+    if (!this.engine || this.engine._hero.moving) {
+      return;
+    }
+    this.setState({ decisionPressedLane: laneIndex });
+    if (this._decisionLaneHighlightTimer) {
+      clearTimeout(this._decisionLaneHighlightTimer);
+    }
+    this._decisionLaneHighlightTimer = setTimeout(() => {
+      this.setState({ decisionPressedLane: null });
+      this._decisionLaneHighlightTimer = null;
+    }, 300);
+    this.engine.submitDecisionLaneChoice(laneIndex);
+  };
 
   renderGame = () => {
     if (!this.state.ready) return;
@@ -186,25 +253,6 @@ class Game extends Component {
           }}
           setGameState={(state) => {
             this.updateWithGameState(state);
-          }}
-        />
-      </View>
-    );
-  };
-
-  renderHomeScreen = () => {
-    if (this.state.gameState !== State.Game.none) {
-      return null;
-    }
-
-    return (
-      <View style={StyleSheet.absoluteFillObject}>
-        <HomeScreen
-          onPlay={() => {
-            this.updateWithGameState(State.Game.playing);
-          }}
-          onShowCharacterSelect={() => {
-            this.setState({ showCharacterSelect: true });
           }}
         />
       </View>
@@ -252,17 +300,53 @@ class Game extends Component {
         ]}
       >
         <Animated.View
-          style={{ flex: 1, opacity: this.transitionScreensValue }}
+          style={{
+            flex: 1,
+            opacity: this.showTitleOverlay() ? 0 : this.transitionScreensValue,
+          }}
+          pointerEvents={this.showTitleOverlay() ? "none" : "auto"}
         >
           {this.renderGame()}
         </Animated.View>
-        <Score
-          score={this.state.score}
-          gameOver={this.state.gameState === State.Game.gameOver}
-        />
+        {!this.showTitleOverlay() && (
+          <Score
+            score={this.state.score}
+            power={this.state.power}
+            gameOver={this.state.gameState === State.Game.gameOver}
+          />
+        )}
+        {this.state.gameState === State.Game.playing && (
+          <DecisionOutcomeFlash
+            outcomeFlash={this.state.decisionOutcomeFlash}
+            onComplete={this.handleDecisionOutcomeFlashEnd}
+          />
+        )}
+        {this.state.decisionMission &&
+          this.state.gameState === State.Game.playing && (
+            <DecisionMissionHud
+              title={this.state.decisionMission.title}
+              choices={this.state.decisionMission.choices}
+              onLanePress={this.handleDecisionLanePress}
+              pressedLaneIndex={this.state.decisionPressedLane}
+            />
+          )}
+        {this.state.bossEncounter &&
+          this.state.gameState === State.Game.playing && (
+            <View style={styles.bossBanner} pointerEvents="none">
+              <Text style={styles.bossText}>BOSS: CLOSING CALL</Text>
+            </View>
+          )}
         {this.renderGameOver()}
 
-        {this.renderHomeScreen()}
+        {this.showTitleOverlay() && (
+          <View style={StyleSheet.absoluteFillObject} pointerEvents="auto">
+            <TitleScreenOverlay
+              selectedRole={this.state.selectedRole}
+              onSelectRole={(role) => this.setState({ selectedRole: role })}
+              onStartMission={this.startMission}
+            />
+          </View>
+        )}
 
         {this.state.showSettings && this.renderSettingsScreen()}
 
@@ -284,6 +368,25 @@ class Game extends Component {
     );
   }
 }
+
+const styles = StyleSheet.create({
+  bossBanner: {
+    position: "absolute",
+    top: 120,
+    left: 16,
+    right: 16,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: "rgba(180, 40, 40, 0.92)",
+    alignItems: "center",
+  },
+  bossText: {
+    color: "#fff",
+    fontFamily: "retro",
+    fontSize: 22,
+    textAlign: "center",
+  },
+});
 
 const GestureView = ({ onStartGesture, onSwipe, ...props }) => {
   const config = {

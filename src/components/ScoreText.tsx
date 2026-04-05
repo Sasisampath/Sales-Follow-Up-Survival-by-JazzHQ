@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, Platform, View } from "react-native";
 import { useSafeArea } from "react-native-safe-area-context";
 import GameContext from "@/context/GameContext";
+import PowerBar from "@/ui/PowerBar";
 
 function generateTextShadow(width) {
   return Platform.select({
@@ -11,9 +12,10 @@ function generateTextShadow(width) {
     default: {},
   });
 }
-const textShadow = generateTextShadow(4);
-const textShadowHighscore = generateTextShadow(2);
-export default function Score({ gameOver, score, ...props }) {
+const labelShadow = generateTextShadow(2);
+const valueShadow = generateTextShadow(3);
+
+export default function Score({ gameOver, score, power, ...props }) {
   const { highscore = 0, setHighscore } = React.useContext(GameContext);
 
   React.useEffect(() => {
@@ -34,12 +36,21 @@ export default function Score({ gameOver, score, ...props }) {
         { top: Math.max(top, 16), left: Math.max(left, 8) },
       ]}
     >
-      <Text style={[styles.score, textShadow]}>{score}</Text>
-      {highscore > 0 && (
-        <Text style={[styles.highscore, textShadowHighscore]}>
-          TOP {highscore}
-        </Text>
+      {typeof power === "number" && (
+        <View style={styles.block}>
+          <Text style={[styles.hudLabel, labelShadow]}>POWER</Text>
+          <Text style={[styles.hudValue, valueShadow]}>{power}</Text>
+          <PowerBar power={power} />
+        </View>
       )}
+      <View style={styles.block}>
+        <Text style={[styles.hudLabel, labelShadow]}>MISSION</Text>
+        <Text style={[styles.hudValue, valueShadow]}>{score}</Text>
+      </View>
+      <View style={styles.block}>
+        <Text style={[styles.hudLabel, labelShadow]}>LEVEL</Text>
+        <Text style={[styles.hudValue, valueShadow]}>{highscore}</Text>
+      </View>
     </View>
   );
 }
@@ -47,21 +58,23 @@ export default function Score({ gameOver, score, ...props }) {
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    gap: 12,
+    gap: 14,
   },
-
-  score: {
-    color: "white",
+  block: {
+    gap: 4,
+  },
+  hudLabel: {
+    color: "rgba(232, 247, 255, 0.85)",
     fontFamily: "retro",
-    fontSize: 48,
+    fontSize: 11,
+    letterSpacing: 1.2,
     backgroundColor: "transparent",
+    textTransform: "uppercase",
   },
-  highscore: {
-    color: "yellow",
+  hudValue: {
+    color: "#f8fafc",
     fontFamily: "retro",
-    fontSize: 14,
-
-    letterSpacing: -0.1,
+    fontSize: 28,
     backgroundColor: "transparent",
   },
 });
