@@ -14,6 +14,8 @@ type Props = {
   onLanePress: (laneIndex: 0 | 1 | 2) => void;
   /** Brief touch feedback on the lane the player chose */
   pressedLaneIndex: number | null;
+  /** End run and show session summary */
+  onEndSession?: () => void;
 };
 
 const LANE_LABELS = ["A", "B", "C"] as const;
@@ -23,6 +25,7 @@ export default function DecisionMissionHud({
   choices,
   onLanePress,
   pressedLaneIndex,
+  onEndSession,
 }: Props) {
   const { top, bottom } = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -31,9 +34,19 @@ export default function DecisionMissionHud({
 
   return (
     <View style={styles.root} pointerEvents="auto">
+      {onEndSession ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="End training session"
+          onPress={onEndSession}
+          style={[styles.exitButton, { top: Math.max(top, 10) + 6 }]}
+        >
+          <Text style={styles.exitButtonText}>End Session</Text>
+        </Pressable>
+      ) : null}
       <View
         style={[styles.header, { paddingTop: Math.max(top, 12) + 8 }]}
-        pointerEvents="none"
+        pointerEvents="auto"
       >
         <Text style={styles.missionLine} numberOfLines={4}>
           <Text style={styles.missionPrefix}>MISSION: </Text>
@@ -41,6 +54,8 @@ export default function DecisionMissionHud({
         </Text>
         <Text style={styles.subtitle}>Choose best action</Text>
       </View>
+
+      <View style={styles.touchBlocker} pointerEvents="auto" />
 
       <View
         style={[styles.laneDock, { paddingBottom: Math.max(bottom, 16) + 12 }]}
@@ -81,10 +96,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     zIndex: 25,
   },
+  exitButton: {
+    position: "absolute",
+    right: 16,
+    zIndex: 30,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(239, 68, 68, 0.85)",
+  },
+  exitButtonText: {
+    fontFamily: "retro",
+    fontSize: 13,
+    color: "#fff",
+  },
   header: {
     alignItems: "center",
     paddingHorizontal: 20,
     gap: 6,
+  },
+  touchBlocker: {
+    flex: 1,
+    minHeight: 24,
   },
   missionLine: {
     textAlign: "center",

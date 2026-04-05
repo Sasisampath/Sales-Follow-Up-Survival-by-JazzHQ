@@ -4,7 +4,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import Footer from "@/components/GameOver/Footer";
 
-function GameOver({ ...props }) {
+type Props = {
+  power: number;
+  correctAnswers: number;
+  /** Current training tier derived from power (display + next goal). */
+  trainingLevel: number;
+  showSettings?: () => void;
+  setGameState: (state: unknown) => void;
+  navigation?: unknown;
+  style?: object;
+};
+
+function GameOver({
+  power,
+  correctAnswers,
+  trainingLevel,
+  ...props
+}: Props) {
   const { top, bottom, left, right } = useSafeAreaInsets();
 
   return (
@@ -16,9 +32,16 @@ function GameOver({ ...props }) {
       ]}
     >
       <View style={styles.content}>
-        <Text style={styles.heading}>Session ended</Text>
+        <Text style={styles.title}>Training Complete</Text>
+
+        <Text style={styles.subtitle}>Power: {power}</Text>
+
         <Text style={styles.subtitle}>
-          Review your run and continue training when ready.
+          Correct decisions: {correctAnswers}
+        </Text>
+
+        <Text style={styles.subtitle}>
+          Next goal: Reach Level {trainingLevel + 1}
         </Text>
       </View>
 
@@ -45,20 +68,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
-    gap: 12,
+    gap: 10,
   },
-  heading: {
+  title: {
     fontFamily: "retro",
-    fontSize: 22,
+    fontSize: 24,
     color: "#0f172a",
     textAlign: "center",
+    marginBottom: 8,
   },
   subtitle: {
     fontFamily: "System",
-    fontSize: 15,
+    fontSize: 16,
     color: "#334155",
     textAlign: "center",
-    lineHeight: 22,
-    maxWidth: 320,
+    lineHeight: 24,
+    maxWidth: 340,
   },
 });

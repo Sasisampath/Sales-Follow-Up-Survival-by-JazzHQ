@@ -50,7 +50,9 @@ function isValidSwipe(
 const freezeBody = (e) => {
   e.preventDefault();
 };
-class GestureView extends Component {
+class GestureView extends Component<any> {
+  _keyboardBound = false;
+
   constructor(props, context) {
     super(props, context);
     this.swipeConfig = Object.assign(swipeConfig, props.config);
@@ -66,17 +68,37 @@ class GestureView extends Component {
   }
 
   componentDidMount() {
-    window.addEventListener("keydown", this.onKeyDown, false);
-    window.addEventListener("keyup", this.onKeyUp, false);
+    this.syncKeyboardListeners(this.props.keyboardEnabled !== false);
   }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.keyboardEnabled !== this.props.keyboardEnabled) {
+      this.syncKeyboardListeners(this.props.keyboardEnabled !== false);
+    }
+  }
+
   componentWillUnmount() {
     if (this.view) {
       this.view.removeEventListener("touchstart", this.touchStart, false);
       this.view.removeEventListener("touchmove", freezeBody, false);
     }
-    window.removeEventListener("keydown", this.onKeyDown);
-    window.removeEventListener("keyup", this.onKeyUp);
+    this.syncKeyboardListeners(false);
   }
+
+  syncKeyboardListeners = (enabled) => {
+    if (typeof window === "undefined" || !window.addEventListener) {
+      return;
+    }
+    if (enabled && !this._keyboardBound) {
+      window.addEventListener("keydown", this.onKeyDown, false);
+      window.addEventListener("keyup", this.onKeyUp, false);
+      this._keyboardBound = true;
+    } else if (!enabled && this._keyboardBound) {
+      window.removeEventListener("keydown", this.onKeyDown);
+      window.removeEventListener("keyup", this.onKeyUp);
+      this._keyboardBound = false;
+    }
+  };
 
   UNSAFE_componentWillReceiveProps(props) {
     this.swipeConfig = Object.assign(swipeConfig, props.config);
@@ -171,7 +193,7 @@ class GestureView extends Component {
   };
 
   render() {
-    const { style, ...props } = this.props;
+    const { style, keyboardEnabled: _k, ...props } = this.props;
 
     return (
       <View

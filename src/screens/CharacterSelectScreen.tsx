@@ -8,7 +8,7 @@ import Carousel from "@/components/CharacterSelect/Carousel";
 import Images from "@/Images";
 
 // import connectCharacter from '../../utils/connectCharacter';
-class CharacterSelect extends Component {
+class CharacterSelect extends Component<any> {
   state = {
     currentIndex: 0,
     characters: Object.keys(Characters).map((val) => Characters[val]),

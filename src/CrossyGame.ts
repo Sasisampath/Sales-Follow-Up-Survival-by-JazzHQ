@@ -12,7 +12,8 @@ import {
 import * as THREE from "three";
 
 import AudioManager from "./AudioManager";
-import { MAP_OFFSET, maxRows } from "./GameSettings";
+import { CHECKPOINT_TILE_COLOR } from "./game/RowFactory";
+import { groundLevel, MAP_OFFSET, maxRows } from "./GameSettings";
 import Feathers from "./Particles/Feathers";
 import Water from "./Particles/Water";
 import Rows from "./Row";
@@ -234,6 +235,18 @@ export class CrossyGameMap extends GameMap {
     for (const water of this.water.items) {
       water.update(dt, hero);
     }
+
+    const pulseT = performance.now() * 0.004;
+    for (const grass of this.grasses.items) {
+      const marker = grass.userData?.decisionMarker as THREE.Mesh | undefined;
+      const mat = marker?.material as THREE.MeshBasicMaterial | undefined;
+      if (mat) {
+        const phase = pulseT + (grass.position?.z ?? 0) * 0.7;
+        mat.opacity = 0.36 + 0.24 * Math.sin(phase);
+        const hue = 0.11 + 0.028 * Math.sin(phase * 1.3);
+        mat.color.setHSL(hue, 0.92, 0.56);
+      }
+    }
   }
 
   // Helper to get clear positions (positions without obstacles) from a grass row
@@ -378,13 +391,28 @@ export class CrossyGameMap extends GameMap {
         const required = [
           ...new Set([...decisionClear, ...threeLanes]),
         ];
-        this.grasses.items[this.grasses.count].generate(
-          Fill.empty,
-          required
+        const grass = this.grasses.items[this.grasses.count];
+        grass.generate(Fill.empty, required);
+        const checkpointMat = new THREE.MeshBasicMaterial({
+          color: CHECKPOINT_TILE_COLOR,
+          transparent: true,
+          opacity: 0.48,
+          depthWrite: false,
+        });
+        const checkpoint = new THREE.Mesh(
+          new THREE.PlaneGeometry(8.2, 1.05),
+          checkpointMat
         );
+        checkpoint.rotation.x = -Math.PI / 2;
+        checkpoint.position.set(0, groundLevel + 0.04, 0);
+        checkpoint.renderOrder = 2;
+        grass.add(checkpoint);
+        grass.userData.decisionMarker = checkpoint;
+        grass.userData.isDecisionCheckpoint = true;
+
         this.setRow(this.rowCount, {
           type: "decision",
-          entity: this.grasses.items[this.grasses.count],
+          entity: grass,
           mission,
           decisionResolved: false,
         });

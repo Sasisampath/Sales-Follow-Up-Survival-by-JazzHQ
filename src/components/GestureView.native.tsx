@@ -25,12 +25,15 @@ function isValidSwipe(
   );
 }
 
-class GestureView extends Component {
+class GestureView extends Component<any> {
+  swipeConfig: typeof swipeConfig;
+  _panResponder: ReturnType<typeof PanResponder.create>;
+
   constructor(props, context) {
     super(props, context);
     this.swipeConfig = Object.assign(swipeConfig, props.config);
     this._panResponder = PanResponder.create({
-      onResponderGrant: () => this.props.onResponderGrant(),
+      onPanResponderGrant: () => this.props.onResponderGrant(),
       onStartShouldSetPanResponder: this._handleShouldSetPanResponder,
       onMoveShouldSetPanResponder: this._handleShouldSetPanResponder,
       onPanResponderRelease: this._handlePanResponderEnd,
@@ -111,7 +114,8 @@ class GestureView extends Component {
   };
 
   render() {
-    const { style = {}, ...props } = this.props;
+    const { style = {}, keyboardEnabled: _keyboardEnabled, ...props } =
+      this.props;
 
     return (
       <View

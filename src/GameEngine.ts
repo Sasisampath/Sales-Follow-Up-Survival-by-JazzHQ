@@ -1,4 +1,5 @@
 import { Dimensions } from "react-native";
+import * as THREE from "three";
 
 import { swipeDirections } from "@/components/GestureView";
 import AudioManager from "./AudioManager";
@@ -18,7 +19,10 @@ import {
   sceneColor,
   startingRow,
 } from "./GameSettings";
-import MissionEngine, { DECISION_LANE_X } from "./game/MissionEngine";
+import MissionEngine, {
+  DECISION_LANE_X,
+  type DecisionLaneResult,
+} from "./game/MissionEngine";
 import type { SalesMission } from "./data/DecisionDataset";
 
 const normalizeAngle = (angle) => {
@@ -32,19 +36,42 @@ export default class Engine {
   powerScore = 0;
   _bossTriggered = false;
   _pendingDecisionFromUp = false;
-  _lastUiMission: SalesMission | null | undefined = undefined;
+  /** Wrong lane: penalty runs after the learner dismisses the feedback overlay */
+  _pendingDecisionPenalty = false;
+  _lastMissionContextKey = "";
+  /** React enables after countdown so forward onto checkpoint is intentional */
+  decisionCheckpointClear = false;
 
   onPowerChange?: (power: number) => void;
-  onDecisionMission?: (mission: SalesMission | null) => void;
+  /** Ahead = row in front has mission; onTile = standing on unresolved decision row */
+  onDecisionMissionContext?: (ctx: {
+    ahead: SalesMission | null;
+    onTile: SalesMission | null;
+  }) => void;
   onBossEncounter?: () => void;
   /** Fires after a decision row resolves (move completed). */
-  onDecisionOutcome?: (correct: boolean) => void;
+  onDecisionOutcome?: (result: DecisionLaneResult) => void;
+  /** Screen-space label above the hero (pixel coords from GL viewport). */
+  onNametagScreenPosition?: (o: {
+    x: number;
+    y: number;
+    visible: boolean;
+  }) => void;
 
-  /** Power granted for a correct decision lane (fixed training reward). */
-  static DECISION_CORRECT_POWER = 5;
+  playerDisplayName = "";
+  _nametagVector = new THREE.Vector3();
+  _nametagTick = 0;
+  _viewportW = 1;
+  _viewportH = 1;
+
+  setPlayerDisplayName(name: string) {
+    this.playerDisplayName = (name || "").trim();
+  }
 
   updateScale = () => {
     const { width, height, scale } = Dimensions.get("window");
+    this._viewportW = width * scale;
+    this._viewportH = height * scale;
     if (this.camera) {
       this.camera.updateScale({ width, height, scale });
     }
@@ -125,7 +152,9 @@ export default class Engine {
     this.powerScore = 0;
     this._bossTriggered = false;
     this._pendingDecisionFromUp = false;
-    this._lastUiMission = undefined;
+    this._pendingDecisionPenalty = false;
+    this._lastMissionContextKey = "";
+    this.decisionCheckpointClear = false;
     this.onPowerChange?.(this.powerScore);
 
     this._hero.idle();
@@ -153,6 +182,8 @@ export default class Engine {
 
   // Reset variables, restart game
   gameOver = () => {
+    this._pendingDecisionPenalty = false;
+    this.decisionCheckpointClear = false;
     this._hero.moving = false;
     // Stop player from finishing a movement
     this._hero.stopAnimations();
@@ -174,6 +205,43 @@ export default class Engine {
     }
     this.forwardScene();
     this.syncDecisionMissionUI();
+    this._nametagTick++;
+    if (this._nametagTick % 2 === 0) {
+      this.updateNametagScreenPosition();
+    }
+  };
+
+  updateNametagScreenPosition = () => {
+    if (
+      !this.onNametagScreenPosition ||
+      !this.camera ||
+      !this._hero ||
+      !this.playerDisplayName ||
+      !this._hero.isAlive
+    ) {
+      this.onNametagScreenPosition?.({ x: 0, y: 0, visible: false });
+      return;
+    }
+    this.camera.updateMatrixWorld(true);
+    this._hero.getWorldPosition(this._nametagVector);
+    this._nametagVector.y += 1.42;
+    this._nametagVector.project(this.camera);
+    const w = Math.max(this._viewportW, 1);
+    const h = Math.max(this._viewportH, 1);
+    const x = ((this._nametagVector.x + 1) / 2) * w;
+    const y = ((1 - this._nametagVector.y) / 2) * h;
+    const visible =
+      this._nametagVector.z > -1.1 &&
+      this._nametagVector.z < 1.1 &&
+      this._nametagVector.x >= -1.08 &&
+      this._nametagVector.x <= 1.08 &&
+      this._nametagVector.y >= -1.25 &&
+      this._nametagVector.y <= 1.12;
+    this.onNametagScreenPosition({ x, y, visible });
+  };
+
+  setDecisionCheckpointClear = (cleared: boolean) => {
+    this.decisionCheckpointClear = cleared;
   };
 
   syncDecisionMissionUI = () => {
@@ -183,21 +251,31 @@ export default class Engine {
     const z = Math.round(this._hero.position.z);
     const ahead = this.gameMap.getRow(z + 1);
     const cur = this.gameMap.getRow(z);
-    let mission: SalesMission | null = null;
+    let aheadMission: SalesMission | null = null;
+    let onTileMission: SalesMission | null = null;
     if (ahead?.type === "decision" && ahead.mission) {
-      mission = ahead.mission;
-    } else if (cur?.type === "decision" && cur.mission) {
-      mission = cur.mission;
+      aheadMission = ahead.mission;
     }
-    if (mission !== this._lastUiMission) {
-      this._lastUiMission = mission ?? null;
-      this.onDecisionMission?.(mission);
+    if (
+      cur?.type === "decision" &&
+      cur.mission &&
+      !cur.decisionResolved
+    ) {
+      onTileMission = cur.mission;
+    }
+    const key = `${aheadMission?.id ?? ""}|${onTileMission?.id ?? ""}`;
+    if (key !== this._lastMissionContextKey) {
+      this._lastMissionContextKey = key;
+      this.onDecisionMissionContext?.({
+        ahead: aheadMission,
+        onTile: onTileMission,
+      });
     }
   };
 
   addPower = (amount: number) => {
     const prev = this.powerScore;
-    this.powerScore += amount;
+    this.powerScore = Math.max(0, this.powerScore + amount);
     this.onPowerChange?.(this.powerScore);
     if (
       !this._bossTriggered &&
@@ -244,6 +322,17 @@ export default class Engine {
     render();
   }
 
+  /** Call after the learner dismisses the decision feedback UI (wrong lane). */
+  resolveDecisionPenaltyAfterFeedback = () => {
+    if (!this._pendingDecisionPenalty) {
+      return;
+    }
+    this._pendingDecisionPenalty = false;
+    if (this._hero.isAlive) {
+      this.onCollide({}, "feathers", "decision");
+    }
+  };
+
   updateScore = () => {
     const position = Math.max(Math.floor(this._hero.position.z) - 8, 0);
     this.onUpdateScore(position);
@@ -263,20 +352,13 @@ export default class Engine {
           this._hero.position.x
         );
         row.decisionResolved = true;
-        const missionRef = row.mission;
         row.mission = null;
 
-        if (result.ok) {
-          this.addPower(Engine.DECISION_CORRECT_POWER);
-          this.onDecisionOutcome?.(true);
-        } else {
-          this.onDecisionOutcome?.(false);
-          setTimeout(() => {
-            if (this._hero.isAlive) {
-              this.onCollide({}, "feathers", "decision");
-            }
-          }, 320);
+        this.addPower(result.powerDelta);
+        if (!result.correct) {
+          this._pendingDecisionPenalty = true;
         }
+        this.onDecisionOutcome?.(result);
         this.syncDecisionMissionUI();
       }
     }
@@ -380,6 +462,12 @@ export default class Engine {
 
           const nextRowUp =
             this.gameMap.getRow(this._hero.initialPosition.z + 1) || {};
+          if (
+            nextRowUp.type === "decision" &&
+            !this.decisionCheckpointClear
+          ) {
+            return;
+          }
           this._pendingDecisionFromUp = nextRowUp.type === "decision";
 
           let shouldRound = true; // rowObject.type !== 'water';
@@ -500,6 +588,8 @@ export default class Engine {
 
   _onGLContextCreate = async (gl) => {
     const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
+    this._viewportW = width;
+    this._viewportH = height;
 
     this.renderer = new CrossyRenderer({
       gl,

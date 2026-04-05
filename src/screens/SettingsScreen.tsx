@@ -33,7 +33,7 @@ const TitleButton = ({ text, imageStyle, source, onPress }) => (
   </View>
 );
 
-class Settings extends Component {
+class Settings extends Component<any> {
   state = {
     currentIndex: 0,
     characters: Object.keys(Characters).map((val) => Characters[val]),

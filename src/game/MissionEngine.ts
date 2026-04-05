@@ -6,9 +6,15 @@ import {
 /** World X positions for the three playable lanes (left → right). */
 export const DECISION_LANE_X = [-1, 0, 1] as const;
 
-export type DecisionResult =
-  | { ok: true; reward: number }
-  | { ok: false; reason: "wrong_lane" | "off_lane" };
+const LANE_LETTERS = ["A", "B", "C"] as const;
+
+export type DecisionLaneResult = {
+  correct: boolean;
+  /** Best lane label + choice text, e.g. "B — Personalize intro" */
+  correctAnswer: string;
+  explanation: string;
+  powerDelta: number;
+};
 
 export default class MissionEngine {
   private missions: SalesMission[];
@@ -45,17 +51,42 @@ export default class MissionEngine {
     return idx >= 0 ? idx : null;
   }
 
+  private formatCorrectAnswer(mission: SalesMission): string {
+    const i = mission.correctLane;
+    const letter = LANE_LETTERS[i];
+    const label = mission.choices[i];
+    return `${letter} — ${label}`;
+  }
+
   validatePlayerLane(
     mission: SalesMission,
     playerX: number
-  ): DecisionResult {
+  ): DecisionLaneResult {
+    const correctAnswer = this.formatCorrectAnswer(mission);
+    const explanation = mission.explanation;
     const lane = this.laneIndexFromX(playerX);
+
     if (lane === null) {
-      return { ok: false, reason: "off_lane" };
+      return {
+        correct: false,
+        correctAnswer,
+        explanation,
+        powerDelta: -1,
+      };
     }
     if (lane !== mission.correctLane) {
-      return { ok: false, reason: "wrong_lane" };
+      return {
+        correct: false,
+        correctAnswer,
+        explanation,
+        powerDelta: -1,
+      };
     }
-    return { ok: true, reward: mission.reward };
+    return {
+      correct: true,
+      correctAnswer,
+      explanation,
+      powerDelta: 2,
+    };
   }
 }

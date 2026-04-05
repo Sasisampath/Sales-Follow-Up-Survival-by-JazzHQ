@@ -30,6 +30,11 @@ export default class Grass extends Object3D {
 */
 
   generate = (type = Fill.random, requiredClearPositions: number[] = []) => {
+    if (this.userData?.decisionMarker) {
+      this.remove(this.userData.decisionMarker);
+      this.userData.decisionMarker = undefined;
+      this.userData.isDecisionCheckpoint = false;
+    }
     this.entities.map((val) => {
       this.floor.remove(val.mesh);
       val = null;
